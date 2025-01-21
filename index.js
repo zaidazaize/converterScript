@@ -11,7 +11,6 @@ class GradleConverter {
         this.genAI = new GoogleGenerativeAI(apiKey);
         this.model = this.genAI.getGenerativeModel({ model: this.modelName });
 
-        // System prompt for the conversion
         this.systemPrompt = `
             You are a build.gradle to build.gradle.kts converter. Convert the given Groovy-based
             build.gradle content to Kotlin-based build.gradle.kts format. Follow these rules:
@@ -26,6 +25,7 @@ class GradleConverter {
             \`\`\`
             plugins {
                 id 'java'
+                alias(a.b.c)
             }
             
             dependencies {
@@ -37,6 +37,7 @@ class GradleConverter {
             \`\`\`
             plugins {
                 java
+                alias(a.b.c)
             }
             
             dependencies {
@@ -55,7 +56,6 @@ class GradleConverter {
             const response = await result.response;
             let convertedContent = response.text();
 
-            // Clean up the response - remove any markdown code blocks if present
             convertedContent = convertedContent
                 .replace(/```kotlin/g, "")
                 .replace(/```/g, "")
@@ -72,7 +72,6 @@ class GradleConverter {
         const keyElements = ["dependencies", "plugins", "repositories"];
         const kotlinMarkers = ["val", "plugins {", "implementation("];
 
-        // Check for preserved key components
         for (const element of keyElements) {
             if (
                 originalContent.toLowerCase().includes(element) &&
@@ -86,7 +85,6 @@ class GradleConverter {
             }
         }
 
-        // Check for Kotlin syntax markers
         if (
             !kotlinMarkers.some((marker) => convertedContent.includes(marker))
         ) {
@@ -100,7 +98,6 @@ class GradleConverter {
 
     async processDirectory(inputDir, createBackup = true) {
         try {
-            // Find all build.gradle files
             const gradleFiles = await glob("**/build.gradle", {
                 cwd: inputDir,
                 absolute: true,
@@ -111,23 +108,25 @@ class GradleConverter {
                 chalk.blue(`Found ${gradleFiles.length} build.gradle files`)
             );
 
-            for (const gradleFile of gradleFiles) {
-                try {
-                    const backupPath = `${gradleFile}.backup`;
+            let isOnce = 0;
 
-                    // Create backup if needed
-                    if (createBackup) {
-                        if (!(await this.fileExists(backupPath))) {
-                            await fs.copyFile(gradleFile, backupPath);
-                            console.log(
-                                chalk.green(`Created backup: ${backupPath}`)
-                            );
-                        }
+            for (const gradleFile of gradleFiles) {
+                if (isOnce < 0) break;
+                isOnce--;
+                try {
+                    const backupPath = `${gradleFile}_backup.txt`;
+
+                    // Always create backup for safety
+                    if (!(await this.fileExists(backupPath))) {
+                        await fs.copyFile(gradleFile, backupPath);
+                        console.log(
+                            chalk.green(`Created backup: ${backupPath}`)
+                        );
                     }
 
-                    // Read the original content
+                    // Read the original content from the backup
                     const originalContent = await fs.readFile(
-                        createBackup ? backupPath : gradleFile,
+                        backupPath,
                         "utf8"
                     );
 
@@ -150,6 +149,20 @@ class GradleConverter {
                     );
                     await fs.writeFile(ktsPath, convertedContent, "utf8");
 
+                    // Delete the original build.gradle file
+                    await fs.unlink(gradleFile);
+                    console.log(
+                        chalk.yellow(`Deleted original file: ${gradleFile}`)
+                    );
+
+                    // If no backup was requested, delete the backup file
+                    if (!createBackup) {
+                        await fs.unlink(backupPath);
+                        console.log(
+                            chalk.yellow(`Deleted backup file: ${backupPath}`)
+                        );
+                    }
+
                     console.log(
                         chalk.green(
                             `Successfully converted ${gradleFile} to ${ktsPath}`
@@ -161,6 +174,24 @@ class GradleConverter {
                             `Error processing ${gradleFile}: ${error.message}`
                         )
                     );
+                    // In case of error, try to restore from backup
+                    try {
+                        const backupPath = `${gradleFile}.backup`;
+                        if (await this.fileExists(backupPath)) {
+                            await fs.copyFile(backupPath, gradleFile);
+                            console.log(
+                                chalk.green(
+                                    `Restored original file from backup due to error`
+                                )
+                            );
+                        }
+                    } catch (restoreError) {
+                        console.error(
+                            chalk.red(
+                                `Failed to restore from backup: ${restoreError.message}`
+                            )
+                        );
+                    }
                 }
             }
         } catch (error) {
@@ -181,7 +212,6 @@ class GradleConverter {
     }
 }
 
-// CLI handling
 async function main() {
     const args = require("yargs")
         .option("input", {
@@ -208,7 +238,6 @@ async function main() {
     await converter.processDirectory(args.input, !args["no-backup"]);
 }
 
-// Run the script if it's called directly
 if (require.main === module) {
     main().catch((error) => {
         console.error(chalk.red(`Fatal error: ${error.message}`));
