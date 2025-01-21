@@ -53,6 +53,7 @@ class GradleConverter {
                 implementation("org.springframework:spring-core:5.0.0")
                 implementation projects.core
                 implementation projects.coreUi
+                implementation(libs.androidx.constraint.layout)
             }
             \`\`\`
 
@@ -79,6 +80,7 @@ class GradleConverter {
                 implementation("org.springframework:spring-core:5.0.0")
                 implementation(projects.core)
                 implementation(projects.coreUi)
+                implementation(libs.androidx.constraint.layout)
             }
             \`\`\`
 
