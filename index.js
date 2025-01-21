@@ -3,6 +3,8 @@ const path = require("path");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const glob = require("glob-promise");
 const chalk = require("chalk");
+const { GradleToKtsConverter } = require("./logic"); // Import the GradleToKtsConverter
+const { log } = require("console");
 
 class GradleConverter {
     constructor(apiKey, model = "gemini-pro") {
@@ -11,6 +13,79 @@ class GradleConverter {
         this.genAI = new GoogleGenerativeAI(apiKey);
         this.model = this.genAI.getGenerativeModel({ model: this.modelName });
 
+        this.localConverter = new GradleToKtsConverter(); // Initialize GradleToKtsConverter
+
+        this.promptRemoveKotlinErrors = `
+            You are a post-processor for converting Groovy-based build.gradle to Kotlin-based build.gradle.kts. The input is partially converted to Kotlin DSL. Your task is to:
+            1. Review and correct any syntax errors or incomplete Kotlin conversions.
+            2. Ensure compatibility with the Kotlin DSL, including:
+            - Correctly handling Groovy closures converted to Kotlin lambdas.
+            - Proper syntax for nested blocks (e.g., repositories, dependencies).
+            - Maintaining the functionality and configurations of plugins, tasks, and dependencies.
+            3. Apply Kotlin idioms, such as type-safe accessors, property access, and string interpolation.
+            4. make sure to use proper sourceSets and configurations
+            5. Return only the finalized Kotlin code without explanations.
+
+
+            Example Input (Partially Converted Kotlin):
+            \`\`\`
+            plugins {
+                id("someplugin")
+                alias(a.b.c)
+                alias(kapt())
+            }
+            sourceSets.get {
+                main {
+                    manifest.srcFile("java/co/branch/coreui/AndroidManifest.xml")
+                    java.srcDir("java")
+                    java.includes.setFrom(srcDirs.map { it + "/**/*.kt" })
+                    java.excludes.add("**/build/**")
+                    srcDirs.forEach {
+                        res.srcDirs += "java/$it/res"
+                    }
+                }
+                test {
+                    java.srcDir("javatest")
+                }
+            }
+
+            dependencies {
+                implementation("org.springframework:spring-core:5.0.0")
+                implementation projects.core
+                implementation projects.coreUi
+            }
+            \`\`\`
+
+            Example Output (Final Kotlin):
+            \`\`\`
+            plugins {
+                id("someplugin")
+                alias(a.b.c)
+                alias(kapt) // need to remove the brackets
+            }
+             sourceSets.getByName("main") {
+                manifest.srcFile("java/co/branch/coreui/AndroidManifest.xml")
+                java.srcDir("java")
+                java.includes.addAll(srcDirs.map { it + "/**/*.kt" })
+                java.excludes.add("**/build/**")
+                srcDirs.forEach {
+                res.srcDirs("java/$it/res")
+            }
+            
+            sourceSets.getByName("test"){
+                java.srcDir("javatest")
+            }
+            dependencies {
+                implementation("org.springframework:spring-core:5.0.0")
+                implementation(projects.core)
+                implementation(projects.coreUi)
+            }
+            \`\`\`
+
+            Now fix the following partially converted build.gradle.kts content:
+        `;
+
+        
         this.systemPrompt = `
             You are a build.gradle to build.gradle.kts converter. Convert the given Groovy-based
             build.gradle content to Kotlin-based build.gradle.kts format. Follow these rules:
@@ -18,7 +93,9 @@ class GradleConverter {
             2. Use proper Kotlin syntax and idioms
             3. Keep all version numbers and configurations
             4. Add type safety where applicable
+            5. make sure to use string literal "" for strings 
             5. Return only the converted code without explanations
+            
             
             Example conversion:
             Input (Groovy):
@@ -48,6 +125,35 @@ class GradleConverter {
             Now convert the following build.gradle file:
         `;
     }
+
+    async convertByParser(gradleContent) {
+        try {
+            const convertedContent = this.localConverter.convert(gradleContent);
+            return convertedContent;
+        } catch (error) {
+            console.error(chalk.red(`Error during conversion: ${error.message}`));
+            throw error;
+        }
+    }
+
+    async improveByModel(convertedContent) {
+        try {
+            const fullPrompt = `${this.promptRemoveKotlinErrors}\n${convertedContent}`;
+            const result = await this.model.generateContent(fullPrompt);
+            const response = await result.response;
+            let improvedContent = response.text();
+            
+            improvedContent = improvedContent
+                .replace(/```kotlin/g, "")
+                .replace(/```/g, "")
+                .trim();
+
+            return improvedContent;
+        } catch (error) {
+            console.error(chalk.red(`Error during API call: ${error.message}`));
+            throw error;
+        }
+    }   
 
     async convertSingleFile(gradleContent) {
         try {
@@ -96,7 +202,7 @@ class GradleConverter {
         }
     }
 
-    async processDirectory(inputDir, createBackup = true) {
+    async processDirectory(inputDir, createBackup = true, convertDirectlyByModel = false, parserOnly = false,singleExecution = false) {
         try {
             const gradleFiles = await glob("**/build.gradle", {
                 cwd: inputDir,
@@ -111,8 +217,10 @@ class GradleConverter {
             let isOnce = 0;
 
             for (const gradleFile of gradleFiles) {
-                if (isOnce < 0) break;
-                isOnce--;
+                if (singleExecution) {
+                    if (isOnce < 0) break;
+                    isOnce--
+                }
                 try {
                     const backupPath = `${gradleFile}_backup.txt`;
 
@@ -130,11 +238,31 @@ class GradleConverter {
                         "utf8"
                     );
 
-                    // Convert the content
-                    console.log(chalk.blue(`Converting ${gradleFile}`));
-                    const convertedContent = await this.convertSingleFile(
-                        originalContent
-                    );
+                    let convertedContent = null;
+
+                    if (parserOnly) {
+
+                        console.log(chalk.blue(`Converting by Parser ${gradleFile}`));
+                        convertedContent = await this.convertByParser(
+                            originalContent
+                        );
+                    } else if(convertDirectlyByModel) {
+                        // Convert the content directly by model
+                        console.log(chalk.blue(`Converting by Model ${gradleFile}`));
+                        convertedContent = await this.convertSingleFile(
+                            originalContent
+                        );
+                    } else {
+                        console.log(chalk.blue(`Converting by Parser ${gradleFile}`));
+                        convertedContent = await this.convertByParser(
+                            originalContent
+                        );
+
+                        console.log(chalk.blue(`Improving by Model ${gradleFile}`));
+                        convertedContent = await this.improveByModel(
+                            convertedContent
+                        );
+                    }
 
                     // Validate the conversion
                     await this.validateConversion(
@@ -231,11 +359,28 @@ async function main() {
             description: "Disable backup creation of original files",
             type: "boolean",
             default: false,
+        }).option("only-parser", {
+            alias: "nm",
+            type: "boolean",
+            default: false
+        }).option("only-model", {
+            alias: "om",
+            type: "boolean",
+            default: false
+        }).option("run-once", {
+            alias: "ro",
+            type: "boolean",
+            default: false
         })
         .help().argv;
 
     const converter = new GradleConverter(args.apiKey);
-    await converter.processDirectory(args.input, !args["no-backup"]);
+    const parserOnly = args["only-parser"];
+    const modelOnly = args["only-model"];
+    const singleExecution = args["run-once"]
+    console.log( 'parserOnly' , parserOnly, ' modelOnly', modelOnly)
+    await converter.processDirectory(args.input, !args["no-backup"],modelOnly ,parserOnly,singleExecution );
+
 }
 
 if (require.main === module) {
