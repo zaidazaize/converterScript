@@ -24,12 +24,14 @@ class GradleConverter {
             - Maintaining the functionality and configurations of plugins, tasks, and dependencies.
             3. Apply Kotlin idioms, such as type-safe accessors, property access, and string interpolation.
             4. make sure to use proper sourceSets and configurations
-            5. Return only the finalized Kotlin code without explanations.
+            5. gradle kts dsl recommended  settings
+            6. Return only the finalized Kotlin code without explanations.
 
 
             Example Input (Partially Converted Kotlin):
             \`\`\`
             plugins {
+                // keep id and alias syntax as it is
                 id("someplugin")
                 alias(a.b.c)
                 alias(kapt())
@@ -60,6 +62,7 @@ class GradleConverter {
             Example Output (Final Kotlin):
             \`\`\`
             plugins {
+                // keep id and alias syntax as it is
                 id("someplugin")
                 alias(a.b.c)
                 alias(kapt) // need to remove the brackets
