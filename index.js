@@ -31,7 +31,6 @@ class GradleConverter {
             Example Input (Partially Converted Kotlin):
             \`\`\`
             plugins {
-                // keep id and alias syntax as it is
                 id("someplugin")
                 alias(a.b.c)
                 alias(kapt())
@@ -62,7 +61,6 @@ class GradleConverter {
             Example Output (Final Kotlin):
             \`\`\`
             plugins {
-                // keep id and alias syntax as it is
                 id("someplugin")
                 alias(a.b.c)
                 alias(kapt) // need to remove the brackets
@@ -364,7 +362,7 @@ async function main() {
             description: "Disable backup creation of original files",
             type: "boolean",
             default: false,
-        }).option("only-parser", {
+        }).option("static", {
             alias: "nm",
             type: "boolean",
             default: false
@@ -380,11 +378,11 @@ async function main() {
         .help().argv;
 
     const converter = new GradleConverter(args.apiKey);
-    const parserOnly = args["only-parser"];
+    const static = args["static"];
     const modelOnly = args["only-model"];
     const singleExecution = args["run-once"]
-    console.log( 'parserOnly' , parserOnly, ' modelOnly', modelOnly)
-    await converter.processDirectory(args.input, !args["no-backup"],modelOnly ,parserOnly,singleExecution );
+    console.log( 'static' , static, ' modelOnly', modelOnly)
+    await converter.processDirectory(args.input, !args["no-backup"],modelOnly ,static,singleExecution );
 
 }
 

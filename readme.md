@@ -25,7 +25,7 @@ npm run convert -- --input <directory> --api-key <your-google-api-key>
 | `-i, --input` | Input directory containing build.gradle files | Yes |
 | `-k, --api-key` | Google API key for Gemini model | Yes |
 | `-n, --no-backup` | Disable backup creation of original files | No |
-| `--only-parser` | Use only the local parser without AI model improvements | No |
+| `--static` | Use only the local converter without AI model improvements | No |
 | `--only-model` | Use only the AI model for conversion | No |
 | `--run-once` | Convert only the first build.gradle file found | No |
 
